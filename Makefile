@@ -17,7 +17,7 @@ INTEGTESTENVVAR=SCHED_PLUGINS_TEST_VERBOSE=1
 
 # Manage platform and builders
 PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
-BUILDER ?= docker
+BUILDER ?= podman
 ifeq ($(BUILDER),podman)
 	ALL_FLAG=--all
 else

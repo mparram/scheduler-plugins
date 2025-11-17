@@ -31,13 +31,11 @@ import (
 
 	"github.com/paypal/load-watcher/pkg/watcher"
 	v1 "k8s.io/api/core/v1"
-	res "k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
+	fwk "k8s.io/kube-scheduler/framework"
 	"k8s.io/kubernetes/pkg/api/v1/resource"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
-	schedutil "k8s.io/kubernetes/pkg/scheduler/util"
-
 	"sigs.k8s.io/scheduler-plugins/apis/config"
 	"sigs.k8s.io/scheduler-plugins/pkg/trimaran"
 )
@@ -47,6 +45,7 @@ const (
 )
 
 type Peaks struct {
+	logger    klog.Logger
 	handle    framework.Handle
 	collector *trimaran.Collector
 	args      *config.PeaksArgs
@@ -76,7 +75,7 @@ func initNodePowerModels(powerModel map[string]config.PowerModel) error {
 }
 
 func New(ctx context.Context, obj runtime.Object, handle framework.Handle) (framework.Plugin, error) {
-	logger := klog.FromContext(ctx)
+	logger := klog.FromContext(ctx).WithValues("plugin", Name)
 	logger.V(4).Info("Peaks plugin Input config %+v", obj)
 
 	args, ok := obj.(*config.PeaksArgs)
@@ -94,6 +93,7 @@ func New(ctx context.Context, obj runtime.Object, handle framework.Handle) (fram
 		return nil, err
 	}
 	pl := &Peaks{
+		logger:    logger,
 		handle:    handle,
 		collector: collector,
 		args:      args,
@@ -101,14 +101,10 @@ func New(ctx context.Context, obj runtime.Object, handle framework.Handle) (fram
 	return pl, nil
 }
 
-func (pl *Peaks) Score(ctx context.Context, cycleState *framework.CycleState, pod *v1.Pod, nodeName string) (int64, *framework.Status) {
-	logger := klog.FromContext(ctx)
+func (pl *Peaks) Score(ctx context.Context, cycleState fwk.CycleState, pod *v1.Pod, nodeInfo fwk.NodeInfo) (int64, *fwk.Status) {
+	logger := klog.FromContext(klog.NewContext(ctx, pl.logger)).WithValues("ExtensionPoint", "Score")
 	score := framework.MinNodeScore
-
-	nodeInfo, err := pl.handle.SnapshotSharedLister().NodeInfos().Get(nodeName)
-	if err != nil {
-		return score, framework.NewStatus(framework.Error, fmt.Sprintf("getting node %q from Snapshot: %v", nodeName, err))
-	}
+	nodeName := nodeInfo.Node().Name
 
 	metrics, _ := pl.collector.GetNodeMetrics(logger, nodeName)
 	if metrics == nil {
@@ -116,21 +112,7 @@ func (pl *Peaks) Score(ctx context.Context, cycleState *framework.CycleState, po
 		return score, nil
 	}
 
-	opts := resource.PodResourcesOptions{
-		NonMissingContainerRequests: v1.ResourceList{
-			v1.ResourceCPU: *res.NewMilliQuantity(
-				schedutil.DefaultMilliCPURequest,
-				res.DecimalSI,
-			),
-		},
-	}
-
-	reqs := resource.PodRequests(
-		pod,
-		opts,
-	)
-
-	quantity := reqs[v1.ResourceCPU]
+	quantity := resource.GetResourceRequestQuantity(pod, v1.ResourceCPU)
 	curPodCPUUsage := quantity.MilliValue()
 
 	var nodeCPUUtilPercent float64
@@ -156,11 +138,11 @@ func (pl *Peaks) Score(ctx context.Context, cycleState *framework.CycleState, po
 		predictedCPUUsage = 100 * (nodeCPUUtilMillis + float64(curPodCPUUsage)) / nodeCPUCapMillis
 	}
 	if predictedCPUUsage > 100 {
-		return score, framework.NewStatus(framework.Success, "")
+		return score, fwk.NewStatus(fwk.Success, "")
 	} else {
 		logger.V(4).Info("Node :", nodeName, ", Node cpu usage current :", nodeCPUUtilPercent, ", predicted :", predictedCPUUsage)
 		jumpInPower := getPowerJumpForUtilisation(nodeCPUUtilPercent, predictedCPUUsage, getPowerModel(nodeName, pl.args.NodePowerModel))
-		return int64(jumpInPower * math.Pow(10, 15)), framework.NewStatus(framework.Success, "")
+		return int64(jumpInPower * math.Pow(10, 15)), fwk.NewStatus(fwk.Success, "")
 	}
 }
 
@@ -168,10 +150,10 @@ func (pl *Peaks) ScoreExtensions() framework.ScoreExtensions {
 	return pl
 }
 
-func (pl *Peaks) NormalizeScore(ctx context.Context, state *framework.CycleState, pod *v1.Pod, scores framework.NodeScoreList) *framework.Status {
+func (pl *Peaks) NormalizeScore(ctx context.Context, state fwk.CycleState, pod *v1.Pod, scores framework.NodeScoreList) *fwk.Status {
 	minCost, maxCost := getMinMaxScores(scores)
 	if minCost == 0 && maxCost == 0 {
-		return framework.NewStatus(framework.Success, "")
+		return fwk.NewStatus(fwk.Success, "")
 	}
 	var normCost float64
 	for i := range scores {
@@ -183,7 +165,7 @@ func (pl *Peaks) NormalizeScore(ctx context.Context, state *framework.CycleState
 			scores[i].Score = framework.MaxNodeScore - int64(normCost)
 		}
 	}
-	return framework.NewStatus(framework.Success, "")
+	return fwk.NewStatus(fwk.Success, "")
 }
 
 func getMinMaxScores(scores framework.NodeScoreList) (int64, int64) {

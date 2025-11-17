@@ -26,6 +26,7 @@ import (
 	"math"
 
 	"github.com/paypal/load-watcher/pkg/watcher"
+	fwk "k8s.io/kube-scheduler/framework"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -43,6 +44,7 @@ const (
 
 // LoadVariationRiskBalancing : scheduler plugin
 type LoadVariationRiskBalancing struct {
+	logger       klog.Logger
 	handle       framework.Handle
 	eventHandler *trimaran.PodAssignEventHandler
 	collector    *trimaran.Collector
@@ -53,7 +55,7 @@ var _ framework.ScorePlugin = &LoadVariationRiskBalancing{}
 
 // New : create an instance of a LoadVariationRiskBalancing plugin
 func New(ctx context.Context, obj runtime.Object, handle framework.Handle) (framework.Plugin, error) {
-	logger := klog.FromContext(ctx)
+	logger := klog.FromContext(ctx).WithValues("plugin", Name)
 	logger.V(4).Info("Creating new instance of the LoadVariationRiskBalancing plugin")
 	// cast object into plugin arguments object
 	args, ok := obj.(*pluginConfig.LoadVariationRiskBalancingArgs)
@@ -70,6 +72,7 @@ func New(ctx context.Context, obj runtime.Object, handle framework.Handle) (fram
 	podAssignEventHandler.AddToHandle(handle)
 
 	pl := &LoadVariationRiskBalancing{
+		logger:       logger,
 		handle:       handle,
 		eventHandler: podAssignEventHandler,
 		collector:    collector,
@@ -79,14 +82,11 @@ func New(ctx context.Context, obj runtime.Object, handle framework.Handle) (fram
 }
 
 // Score : evaluate score for a node
-func (pl *LoadVariationRiskBalancing) Score(ctx context.Context, cycleState *framework.CycleState, pod *v1.Pod, nodeName string) (int64, *framework.Status) {
-	logger := klog.FromContext(ctx)
+func (pl *LoadVariationRiskBalancing) Score(ctx context.Context, cycleState fwk.CycleState, pod *v1.Pod, nodeInfo fwk.NodeInfo) (int64, *fwk.Status) {
+	logger := klog.FromContext(klog.NewContext(ctx, pl.logger)).WithValues("ExtensionPoint", "Score")
+	nodeName := nodeInfo.Node().Name
 	logger.V(6).Info("Calculating score", "pod", klog.KObj(pod), "nodeName", nodeName)
 	score := framework.MinNodeScore
-	nodeInfo, err := pl.handle.SnapshotSharedLister().NodeInfos().Get(nodeName)
-	if err != nil {
-		return score, framework.NewStatus(framework.Error, fmt.Sprintf("getting node %q from Snapshot: %v", nodeName, err))
-	}
 	// get node metrics
 	metrics, _ := pl.collector.GetNodeMetrics(logger, nodeName)
 	if metrics == nil {
@@ -119,7 +119,7 @@ func (pl *LoadVariationRiskBalancing) Score(ctx context.Context, cycleState *fra
 	}
 	score = int64(math.Round(totalScore))
 	logger.V(6).Info("Calculating totalScore", "pod", klog.KObj(pod), "nodeName", nodeName, "totalScore", score)
-	return score, framework.NewStatus(framework.Success, "")
+	return score, fwk.NewStatus(fwk.Success, "")
 }
 
 // Name : name of plugin
@@ -133,6 +133,6 @@ func (pl *LoadVariationRiskBalancing) ScoreExtensions() framework.ScoreExtension
 }
 
 // NormalizeScore : normalize scores
-func (pl *LoadVariationRiskBalancing) NormalizeScore(context.Context, *framework.CycleState, *v1.Pod, framework.NodeScoreList) *framework.Status {
+func (pl *LoadVariationRiskBalancing) NormalizeScore(context.Context, fwk.CycleState, *v1.Pod, framework.NodeScoreList) *fwk.Status {
 	return nil
 }

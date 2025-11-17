@@ -22,7 +22,7 @@ package noderesources
 import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
+	fwk "k8s.io/kube-scheduler/framework"
 	schedutil "k8s.io/kubernetes/pkg/scheduler/util"
 )
 
@@ -49,13 +49,13 @@ type resourceToValueMap map[v1.ResourceName]int64
 func (r *resourceAllocationScorer) score(
 	logger klog.Logger,
 	pod *v1.Pod,
-	nodeInfo *framework.NodeInfo) (int64, *framework.Status) {
+	nodeInfo fwk.NodeInfo) (int64, *fwk.Status) {
 	node := nodeInfo.Node()
 	if node == nil {
-		return 0, framework.NewStatus(framework.Error, "node not found")
+		return 0, fwk.NewStatus(fwk.Error, "node not found")
 	}
 	if r.resourceToWeightMap == nil {
-		return 0, framework.NewStatus(framework.Error, "resources not found")
+		return 0, fwk.NewStatus(fwk.Error, "resources not found")
 	}
 	requested := make(resourceToValueMap, len(r.resourceToWeightMap))
 	allocatable := make(resourceToValueMap, len(r.resourceToWeightMap))
@@ -76,19 +76,19 @@ func (r *resourceAllocationScorer) score(
 }
 
 // calculateResourceAllocatableRequest returns resources Allocatable and Requested values
-func calculateResourceAllocatableRequest(logger klog.Logger, nodeInfo *framework.NodeInfo, pod *v1.Pod, resource v1.ResourceName) (int64, int64) {
+func calculateResourceAllocatableRequest(logger klog.Logger, nodeInfo fwk.NodeInfo, pod *v1.Pod, resource v1.ResourceName) (int64, int64) {
 	podRequest := calculatePodResourceRequest(pod, resource)
 	switch resource {
 	case v1.ResourceCPU:
-		return nodeInfo.Allocatable.MilliCPU, (nodeInfo.NonZeroRequested.MilliCPU + podRequest)
+		return nodeInfo.GetAllocatable().GetMilliCPU(), nodeInfo.GetNonZeroRequested().GetMilliCPU() + podRequest
 	case v1.ResourceMemory:
-		return nodeInfo.Allocatable.Memory, (nodeInfo.NonZeroRequested.Memory + podRequest)
+		return nodeInfo.GetAllocatable().GetMemory(), nodeInfo.GetNonZeroRequested().GetMemory() + podRequest
 
 	case v1.ResourceEphemeralStorage:
-		return nodeInfo.Allocatable.EphemeralStorage, (nodeInfo.Requested.EphemeralStorage + podRequest)
+		return nodeInfo.GetAllocatable().GetEphemeralStorage(), nodeInfo.GetRequested().GetEphemeralStorage() + podRequest
 	default:
 		if schedutil.IsScalarResourceName(resource) {
-			return nodeInfo.Allocatable.ScalarResources[resource], (nodeInfo.Requested.ScalarResources[resource] + podRequest)
+			return nodeInfo.GetAllocatable().GetScalarResources()[resource], nodeInfo.GetRequested().GetScalarResources()[resource] + podRequest
 		}
 	}
 	if logger.V(10).Enabled() {
@@ -106,15 +106,17 @@ func calculatePodResourceRequest(pod *v1.Pod, resource v1.ResourceName) int64 {
 	var podRequest int64
 	for i := range pod.Spec.Containers {
 		container := &pod.Spec.Containers[i]
-		qty := schedutil.GetRequestForResource(resource, &container.Resources.Requests, true)
-		podRequest += qty.Value()
+		if qty, found := container.Resources.Requests[resource]; found {
+			podRequest += qty.Value()
+		}
 	}
 
 	for i := range pod.Spec.InitContainers {
 		initContainer := &pod.Spec.InitContainers[i]
-		qty := schedutil.GetRequestForResource(resource, &initContainer.Resources.Requests, true)
-		if value := qty.Value(); podRequest < value {
-			podRequest = value
+		if qty, found := initContainer.Resources.Requests[resource]; found {
+			if value := qty.Value(); podRequest < value {
+				podRequest = value
+			}
 		}
 	}
 

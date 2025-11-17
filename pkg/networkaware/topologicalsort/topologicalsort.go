@@ -24,13 +24,14 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/klog/v2"
+	fwk "k8s.io/kube-scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/queuesort"
-
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	pluginconfig "sigs.k8s.io/scheduler-plugins/apis/config"
 	networkawareutil "sigs.k8s.io/scheduler-plugins/pkg/networkaware/util"
+	"sigs.k8s.io/scheduler-plugins/pkg/util"
 
 	agv1alpha "github.com/diktyo-io/appgroup-api/pkg/apis/appgroup/v1alpha1"
 )
@@ -50,6 +51,7 @@ func init() {
 // TopologicalSort : Sort pods based on their AppGroup and corresponding microservice dependencies
 type TopologicalSort struct {
 	client.Client
+	logger     klog.Logger
 	handle     framework.Handle
 	namespaces []string
 }
@@ -73,7 +75,7 @@ func getArgs(obj runtime.Object) (*pluginconfig.TopologicalSortArgs, error) {
 
 // New : create an instance of a TopologicalSort plugin
 func New(ctx context.Context, obj runtime.Object, handle framework.Handle) (framework.Plugin, error) {
-	logger := klog.FromContext(ctx)
+	logger := klog.FromContext(ctx).WithValues("plugin", Name)
 	logger.V(4).Info("Creating new instance of the TopologicalSort plugin")
 
 	args, err := getArgs(obj)
@@ -81,15 +83,14 @@ func New(ctx context.Context, obj runtime.Object, handle framework.Handle) (fram
 		return nil, err
 	}
 
-	client, err := client.New(handle.KubeConfig(), client.Options{
-		Scheme: scheme,
-	})
+	c, _, err := util.NewClientWithCachedReader(ctx, handle.KubeConfig(), scheme)
 	if err != nil {
 		return nil, err
 	}
 
 	pl := &TopologicalSort{
-		Client:     client,
+		Client:     c,
+		logger:     logger,
 		handle:     handle,
 		namespaces: args.Namespaces,
 	}
@@ -99,11 +100,11 @@ func New(ctx context.Context, obj runtime.Object, handle framework.Handle) (fram
 // Less is the function used by the activeQ heap algorithm to sort pods.
 // 1) Sort Pods based on their AppGroup and corresponding service topology graph.
 // 2) Otherwise, follow the strategy of the in-tree QueueSort Plugin (PrioritySort Plugin)
-func (ts *TopologicalSort) Less(pInfo1, pInfo2 *framework.QueuedPodInfo) bool {
-	p1AppGroup := networkawareutil.GetPodAppGroupLabel(pInfo1.Pod)
-	p2AppGroup := networkawareutil.GetPodAppGroupLabel(pInfo2.Pod)
+func (ts *TopologicalSort) Less(pInfo1, pInfo2 fwk.QueuedPodInfo) bool {
+	p1AppGroup := networkawareutil.GetPodAppGroupLabel(pInfo1.GetPodInfo().GetPod())
+	p2AppGroup := networkawareutil.GetPodAppGroupLabel(pInfo2.GetPodInfo().GetPod())
 	ctx := context.TODO()
-	logger := klog.FromContext(ctx)
+	logger := ts.logger.WithValues("ExtensionPoint", "Less")
 
 	// If pods do not belong to an AppGroup, or being to different AppGroups, follow vanilla QoS Sort
 	if p1AppGroup != p2AppGroup || len(p1AppGroup) == 0 {
@@ -113,13 +114,13 @@ func (ts *TopologicalSort) Less(pInfo1, pInfo2 *framework.QueuedPodInfo) bool {
 	}
 
 	// Pods belong to the same appGroup, get the CR
-	logger.V(6).Info("Pods belong to the same AppGroup CR", "p1 name", pInfo1.Pod.Name, "p2 name", pInfo2.Pod.Name, "appGroup", p1AppGroup)
+	logger.V(6).Info("Pods belong to the same AppGroup CR", "p1 name", pInfo1.GetPodInfo().GetPod().Name, "p2 name", pInfo2.GetPodInfo().GetPod().Name, "appGroup", p1AppGroup)
 	agName := p1AppGroup
-	appGroup := ts.findAppGroupTopologicalSort(ctx, logger, agName)
+	appGroup := ts.findAppGroupTopologicalSort(ctx, agName)
 
 	// Get labels from both pods
-	labelsP1 := pInfo1.Pod.GetLabels()
-	labelsP2 := pInfo2.Pod.GetLabels()
+	labelsP1 := pInfo1.GetPodInfo().GetPod().GetLabels()
+	labelsP2 := pInfo2.GetPodInfo().GetPod().GetLabels()
 
 	// Binary search to find both order index since topology list is ordered by Workload Name
 	orderP1 := networkawareutil.FindPodOrder(appGroup.Status.TopologyOrder, labelsP1[agv1alpha.AppGroupSelectorLabel])
@@ -131,7 +132,8 @@ func (ts *TopologicalSort) Less(pInfo1, pInfo2 *framework.QueuedPodInfo) bool {
 	return orderP1 <= orderP2
 }
 
-func (ts *TopologicalSort) findAppGroupTopologicalSort(ctx context.Context, logger klog.Logger, agName string) *agv1alpha.AppGroup {
+func (ts *TopologicalSort) findAppGroupTopologicalSort(ctx context.Context, agName string) *agv1alpha.AppGroup {
+	logger := ts.logger
 	for _, namespace := range ts.namespaces {
 		logger.V(6).Info("appGroup CR", "namespace", namespace, "name", agName)
 		// AppGroup couldn't be placed in several namespaces simultaneously

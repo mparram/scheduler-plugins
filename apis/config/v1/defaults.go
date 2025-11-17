@@ -97,6 +97,10 @@ var (
 	// DefaultNetworkTopologyName contains the networkTopology CR name to be used by networkAware plugins
 	DefaultNetworkTopologyName = "nt-default"
 
+	// Defaults for FlavourClusterWide
+	// DefaultLabelName is the default label key to use for identifying pod flavours
+	DefaultLabelName = "flavour"
+
 	// Defaults for SySched
 	// DefaultSySchedProfileNamespace is the namesapce of the default syscall profile CR for SySched plugin
 	DefaultSySchedProfileNamespace = "default"
@@ -237,6 +241,13 @@ func SetDefaults_NetworkOverheadArgs(obj *NetworkOverheadArgs) {
 
 	if obj.NetworkTopologyName == nil {
 		obj.NetworkTopologyName = &DefaultNetworkTopologyName
+	}
+}
+
+// SetDefaults_FlavourClusterWideArgs sets the default parameters for FlavourClusterWideArgs plugin.
+func SetDefaults_FlavourClusterWideArgs(obj *FlavourClusterWideArgs) {
+	if obj.LabelName == nil {
+		obj.LabelName = &DefaultLabelName
 	}
 }
 

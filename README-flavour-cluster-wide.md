@@ -64,11 +64,11 @@ metadata:
   name: cluster
   namespace: openshift-secondary-scheduler-operator
 spec:
-  logLevel: TraceAll
+  logLevel: Normal
   managementState: Managed
-  operatorLogLevel: TraceAll
+  operatorLogLevel: Normal
   schedulerConfig: secondary-scheduler-config
-  schedulerImage: 'registry.k8s.io/scheduler-plugins/kube-scheduler:v0.27.8'
+  schedulerImage: 'quay.io/mparrade/secondary-scheduler-plugins:v20251119-v0.31.12'
 ```
 
 2. **Scheduler ConfigMap**: Configure the plugin in the scheduler profile via `config.yaml`. The label name can be customized using the `labelName` parameter in the plugin configuration:

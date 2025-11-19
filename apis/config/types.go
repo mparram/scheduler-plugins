@@ -291,6 +291,16 @@ type PeaksArgs struct {
 	NodePowerModel map[string]PowerModel // Node power model where key is node name and value is power model
 }
 
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+// FlavourClusterWideArgs holds arguments used to configure FlavourClusterWide plugin.
+type FlavourClusterWideArgs struct {
+	metav1.TypeMeta `json:",inline"`
+	// LabelName is the label key to use for identifying pod flavours.
+	// Defaults to "flavour" if not specified.
+	LabelName string `json:"labelName,omitempty"`
+}
+
 type PowerModel struct {
 	K0 float64 `json:"k0"`
 	K1 float64 `json:"k1"`

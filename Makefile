@@ -17,7 +17,7 @@ INTEGTESTENVVAR=SCHED_PLUGINS_TEST_VERBOSE=1
 
 # Manage platform and builders
 PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
-BUILDER ?= docker
+BUILDER ?= podman
 ifeq ($(BUILDER),podman)
 	ALL_FLAG=--all
 else
@@ -69,6 +69,20 @@ build-images:
 	DISTROLESS_BASE_IMAGE=$(DISTROLESS_BASE_IMAGE) \
 	DOCKER_BUILDX_CMD=$(DOCKER_BUILDX_CMD) \
 	EXTRA_ARGS=$(EXTRA_ARGS) hack/build-images.sh
+
+
+.PHONY: build-scheduler-image
+build-scheduler-image:
+	BUILDER=$(BUILDER) \
+	PLATFORMS=$(PLATFORMS) \
+	RELEASE_VERSION=$(RELEASE_VERSION) \
+	REGISTRY=$(REGISTRY) \
+	IMAGE=$(RELEASE_IMAGE) \
+	CONTROLLER_IMAGE=$(RELEASE_CONTROLLER_IMAGE) \
+	GO_BASE_IMAGE=$(GO_BASE_IMAGE) \
+	DISTROLESS_BASE_IMAGE=$(DISTROLESS_BASE_IMAGE) \
+	DOCKER_BUILDX_CMD=$(DOCKER_BUILDX_CMD) \
+	EXTRA_ARGS=$(EXTRA_ARGS) hack/build-scheduler-image.sh
 
 .PHONY: local-image
 local-image: PLATFORMS="linux/$$(uname -m)"

@@ -297,3 +297,14 @@ type PowerModel struct {
 	// Power = K0 + K1 * e ^(K2 * x) : where x is utilisation
 	// Idle power of node will be K0 + K1
 }
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+// +k8s:defaulter-gen=true
+
+// FlavourClusterWideArgs holds arguments used to configure FlavourClusterWide plugin.
+type FlavourClusterWideArgs struct {
+	metav1.TypeMeta `json:",inline"`
+	// LabelName is the label key to use for identifying pod flavours.
+	// Defaults to "flavour" if not specified.
+	LabelName *string `json:"labelName,omitempty"`
+}

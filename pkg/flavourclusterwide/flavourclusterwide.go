@@ -207,7 +207,8 @@ func (f *FlavourClusterWide) PostBind(ctx context.Context, state *framework.Cycl
 // Score evaluates a given pod and node to determine a score based on the distribution of pods with the same flavour label across the cluster.
 // It returns a score of 100 if the pod's flavour is the least common on the specified node, otherwise it returns 0.
 // If the pod does not have the configured label, scoring is not applied and a status message is returned.
-func (f *FlavourClusterWide) Score(ctx context.Context, state *framework.CycleState, pod *v1.Pod, nodeName string) (int64, *framework.Status) {
+func (f *FlavourClusterWide) Score(ctx context.Context, state *framework.CycleState, pod *v1.Pod, nodeInfo *framework.NodeInfo) (int64, *framework.Status) {
+	nodeName := nodeInfo.Node().Name
 	flavour := pod.Labels[f.labelName]
 	if flavour == "" {
 		return 0, framework.NewStatus(framework.Success, fmt.Sprintf("Pod does not have the '%s' label, scoring is not applied", f.labelName))
@@ -257,16 +258,16 @@ func (f *FlavourClusterWide) Score(ctx context.Context, state *framework.CycleSt
 	// - Node with maxPods gets the lowest score (0, but we'll make it at least 1)
 	// - All scores are proportional to the difference
 	score := int64((maxPods - podCount) * 100 / (maxPods - minPods))
-	
+
 	// Ensure minimum score is at least 1 (not 0) to allow scheduler to differentiate
 	// Nodes with maxPods will get score 1, nodes with minPods will get score 100
 	if score < 1 {
 		score = 1
 	}
 
-	log.Printf("Pod %s with flavour %s: node %s has %d pods (min=%d, max=%d), score=%d", 
+	log.Printf("Pod %s with flavour %s: node %s has %d pods (min=%d, max=%d), score=%d",
 		pod.Name, flavour, nodeName, podCount, minPods, maxPods, score)
-	
+
 	return score, framework.NewStatus(framework.Success, "")
 }
 

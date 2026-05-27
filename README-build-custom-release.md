@@ -71,131 +71,85 @@ make verify    # formatting, go.mod, CRDs, etc.
 make           # builds bin/kube-scheduler and bin/controller locally (optional)
 ```
 
-## 4. Build the scheduler image
+## 4. Build and publish container images
 
-For a **secondary scheduler** on OpenShift/Kubernetes, the **kube-scheduler** image is usually enough (the controller is not required unless you use plugins that depend on it, e.g. coscheduling with PodGroup).
+Run `make build-images` to build **kube-scheduler** and **controller** images. The Makefile sets `REGISTRY`, `RELEASE_VERSION`, `PLATFORMS`, `BUILDER`, and related defaults (see [section 6](#6-optional-makefile-overrides)).
 
-### Local build (single architecture, no push)
+For the secondary scheduler you only need the **kube-scheduler** image unless you use plugins that require the controller (e.g. coscheduling with PodGroup).
 
-Load the image into a local registry (`localhost:5000`) or the local daemon with `--load`:
-
-```bash
-make local-image
-```
-
-Default output:
-
-- `localhost:5000/scheduler-plugins/kube-scheduler:latest`
-- `localhost:5000/scheduler-plugins/controller:latest` (both images; ignore the controller if unused)
-
-For the **scheduler only** locally:
-
-```bash
-make clean build-scheduler-image \
-  RELEASE_VERSION=v0.0.0 \
-  REGISTRY=localhost:5000/scheduler-plugins \
-  PLATFORMS=linux/$(uname -m) \
-  EXTRA_ARGS="--load"
-```
-
-### Registry build (production / Quay)
-
-The image tag should include the scheduler-plugins version as `v0.<minor>.<patch>` so the Makefile embeds the correct Kubernetes version in the binary (`v0.32.7` → `v1.32.7` in ldflags).
-
-Recommended tag convention:
+Default image names after build:
 
 ```text
-v<YYYYMMDD>-v0.<k8s-minor>.<patch>
+gcr.io/k8s-staging-scheduler-plugins/kube-scheduler:<RELEASE_VERSION>
+gcr.io/k8s-staging-scheduler-plugins/controller:<RELEASE_VERSION>
 ```
 
-Example for **Kubernetes 1.32.7**:
+`<RELEASE_VERSION>` is generated automatically (date + `git describe`). List local images with `podman images`.
+
+### Build
 
 ```bash
-export K8S_MINOR=32
-export K8S_PATCH=7
-export RELEASE_VERSION="v$(date +%Y%m%d)-v0.${K8S_MINOR}.${K8S_PATCH}"
-export REGISTRY="quay.io/<user-or-org>/secondary-scheduler-plugins"
-export PLATFORMS="linux/amd64"          # or linux/amd64,linux/arm64
-export BUILDER="podman"                 # or docker
-
-make clean build-scheduler-image \
-  RELEASE_VERSION="${RELEASE_VERSION}" \
-  REGISTRY="${REGISTRY}" \
-  PLATFORMS="${PLATFORMS}" \
-  BUILDER="${BUILDER}" \
-  EXTRA_ARGS="--push"
+make build-images
 ```
 
-Resulting image (Makefile default name):
+### Tag and push with Podman
 
-```text
-${REGISTRY}/kube-scheduler:${RELEASE_VERSION}
-```
-
-Example: `quay.io/mparrade/secondary-scheduler-plugins/kube-scheduler:v20250526-v0.32.7`
-
-#### Flat tag (no `kube-scheduler/` path)
-
-If deployment expects a flat name (e.g. `quay.io/mparrade/secondary-scheduler-plugins:v20250526-v0.32.7`):
+Tag the built scheduler image to the name your registry / `SecondaryScheduler` CR expects, then push:
 
 ```bash
-make clean build-scheduler-image \
-  RELEASE_VERSION="${RELEASE_VERSION}" \
-  REGISTRY="quay.io/mparrade" \
-  IMAGE="secondary-scheduler-plugins:${RELEASE_VERSION}" \
-  PLATFORMS="${PLATFORMS}" \
-  BUILDER="${BUILDER}" \
-  EXTRA_ARGS="--push"
+podman login quay.io
+
+podman tag \
+  gcr.io/k8s-staging-scheduler-plugins/kube-scheduler:<RELEASE_VERSION> \
+  quay.io/<user-or-org>/secondary-scheduler-plugins:<RELEASE_VERSION>
+
+podman push quay.io/<user-or-org>/secondary-scheduler-plugins:<RELEASE_VERSION>
+```
+
+Replace `<RELEASE_VERSION>` with the tag shown by `podman images` (same value on both sides of `podman tag`).
+
+Controller (only if needed):
+
+```bash
+podman tag \
+  gcr.io/k8s-staging-scheduler-plugins/controller:<RELEASE_VERSION> \
+  quay.io/<user-or-org>/secondary-scheduler-plugins-controller:<RELEASE_VERSION>
+
+podman push quay.io/<user-or-org>/secondary-scheduler-plugins-controller:<RELEASE_VERSION>
 ```
 
 ## 5. Examples by Kubernetes version
 
+### Kubernetes 1.34
+
+```bash
+git checkout release-1.34
+make verify
+make build-images
+podman images   # note kube-scheduler tag
+podman tag gcr.io/k8s-staging-scheduler-plugins/kube-scheduler:<tag> \
+  quay.io/mparrade/secondary-scheduler-plugins:<tag>
+podman push quay.io/mparrade/secondary-scheduler-plugins:<tag>
+```
+
+Upstream reference: `registry.k8s.io/scheduler-plugins/kube-scheduler:v0.34.7` (built with k8s v1.34.7).
+
 ### Kubernetes 1.32
 
-```bash
-git checkout release-1.32
-make verify
+Same flow on `release-1.32`. Upstream reference: `kube-scheduler:v0.32.7`.
 
-RELEASE_VERSION=v20250526-v0.32.7 \
-REGISTRY=quay.io/mparrade \
-IMAGE=secondary-scheduler-plugins:v20250526-v0.32.7 \
-PLATFORMS=linux/amd64 \
-BUILDER=podman \
-EXTRA_ARGS="--push" \
-make build-scheduler-image
-```
+## 6. Optional Makefile overrides
 
-Upstream reference: `registry.k8s.io/scheduler-plugins/kube-scheduler:v0.32.7` (built with k8s v1.32.7).
+Override only when the defaults are not what you need:
 
-### Kubernetes 1.33
+| Variable | Default |
+|----------|---------|
+| `RELEASE_VERSION` | `v<date>-<git describe>` |
+| `REGISTRY` | `gcr.io/k8s-staging-scheduler-plugins` |
+| `PLATFORMS` | `linux/amd64,linux/arm64,...` |
+| `BUILDER` | `podman` |
 
-```bash
-git checkout release-1.33
-make verify
-
-RELEASE_VERSION=v20250526-v0.33.5 \
-REGISTRY=quay.io/mparrade \
-IMAGE=secondary-scheduler-plugins:v20250526-v0.33.5 \
-PLATFORMS=linux/amd64 \
-BUILDER=podman \
-EXTRA_ARGS="--push" \
-make build-scheduler-image
-```
-
-Upstream reference: `registry.k8s.io/scheduler-plugins/kube-scheduler:v0.33.5` (built with k8s v1.33.5).
-
-## 6. Relevant Makefile variables
-
-| Variable | Description | Default / example |
-|----------|-------------|-------------------|
-| `RELEASE_VERSION` | Image tag and version embedded in the binary | `v20250526-v0.32.7` |
-| `REGISTRY` | Target registry | `gcr.io/k8s-staging-scheduler-plugins` |
-| `IMAGE` | Image name (without registry) | `kube-scheduler:$(RELEASE_VERSION)` |
-| `PLATFORMS` | Architectures (buildx) | `linux/amd64,linux/arm64,...` |
-| `BUILDER` | `podman`, `docker`, or `nerdctl` | `podman` |
-| `EXTRA_ARGS` | buildx flags (`--load`, `--push`) | empty |
-| `GO_BASE_IMAGE` | Build base image | `golang:$(go.mod version)` |
-| `DISTROLESS_BASE_IMAGE` | Runtime image | `gcr.io/distroless/static:nonroot` |
+Example: `make build-images REGISTRY=localhost/scheduler-plugins PLATFORMS=linux/amd64 EXTRA_ARGS="--load"`
 
 The scheduler Dockerfile is at `build/scheduler/Dockerfile` and runs `make build-scheduler` inside the container.
 
@@ -233,6 +187,6 @@ Ensure `scheduler-config` enables the plugins you need in the secondary schedule
 ## References
 
 - [README.md](README.md) — available plugins and compatibility matrix
-- [doc/develop.md](doc/develop.md) — development and `make local-image`
+- [doc/develop.md](doc/develop.md) — upstream development guide
 - [README-flavour-cluster-wide.md](README-flavour-cluster-wide.md) — cluster-wide plugin and OpenShift deployment
 - [RELEASE.md](RELEASE.md) — upstream release process

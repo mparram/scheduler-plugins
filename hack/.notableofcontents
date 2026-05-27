@@ -4,3 +4,5 @@
 ./CONTRIBUTING.md
 ./.github/PULL_REQUEST_TEMPLATE.md
 ./pkg/*
+./README-build-custom-release.md
+./README-flavour-cluster-wide.md

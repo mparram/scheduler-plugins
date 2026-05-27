@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	fwk "k8s.io/kube-scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 
 	pluginConfig "sigs.k8s.io/scheduler-plugins/apis/config"
@@ -201,7 +202,7 @@ func (f *FlavourClusterWide) updateCacheIfNeeded() {
 // It updates the cache with the count of pods per flavour dynamically, adding new flavours as they are discovered.
 // If the pod does not have the configured label, the method returns immediately.
 // The cache is protected by a mutex to ensure thread safety.
-func (f *FlavourClusterWide) PostBind(ctx context.Context, state *framework.CycleState, pod *v1.Pod, nodeName string) {
+func (f *FlavourClusterWide) PostBind(ctx context.Context, state fwk.CycleState, pod *v1.Pod, nodeName string) {
 
 	flavour := pod.Labels[f.labelName]
 	if flavour == "" {
@@ -233,11 +234,11 @@ func (f *FlavourClusterWide) PostBind(ctx context.Context, state *framework.Cycl
 // Score evaluates a given pod and node to determine a score based on the distribution of pods with the same flavour label across the cluster.
 // It returns a score of 100 if the pod's flavour is the least common on the specified node, otherwise it returns 0.
 // If the pod does not have the configured label, scoring is not applied and a status message is returned.
-func (f *FlavourClusterWide) Score(ctx context.Context, state *framework.CycleState, pod *v1.Pod, nodeInfo *framework.NodeInfo) (int64, *framework.Status) {
+func (f *FlavourClusterWide) Score(ctx context.Context, state fwk.CycleState, pod *v1.Pod, nodeInfo fwk.NodeInfo) (int64, *fwk.Status) {
 	nodeName := nodeInfo.Node().Name
 	flavour := pod.Labels[f.labelName]
 	if flavour == "" {
-		return 0, framework.NewStatus(framework.Success, fmt.Sprintf("Pod does not have the '%s' label, scoring is not applied", f.labelName))
+		return 0, fwk.NewStatus(fwk.Success, fmt.Sprintf("Pod does not have the '%s' label, scoring is not applied", f.labelName))
 	}
 
 	f.updateCacheIfNeeded()
@@ -261,7 +262,7 @@ func (f *FlavourClusterWide) Score(ctx context.Context, state *framework.CycleSt
 
 	// If no pods with this flavour exist, all nodes are equally good
 	if minPods == -1 {
-		return 100, framework.NewStatus(framework.Success, "")
+		return 100, fwk.NewStatus(fwk.Success, "")
 	}
 
 	// Get current pod count for this node (safely handle missing nodes/flavours)
@@ -275,7 +276,7 @@ func (f *FlavourClusterWide) Score(ctx context.Context, state *framework.CycleSt
 	// Calculate score: nodes with fewer pods get higher scores
 	// If all nodes have the same number of pods, they all get the same score (100)
 	if minPods == maxPods {
-		return 100, framework.NewStatus(framework.Success, "")
+		return 100, fwk.NewStatus(fwk.Success, "")
 	}
 
 	// Formula: score = (maxPods - podCount) * 100 / (maxPods - minPods)
@@ -294,13 +295,13 @@ func (f *FlavourClusterWide) Score(ctx context.Context, state *framework.CycleSt
 	log.Printf("Pod %s with flavour %s: node %s has %d pods (min=%d, max=%d), score=%d",
 		pod.Name, flavour, nodeName, podCount, minPods, maxPods, score)
 
-	return score, framework.NewStatus(framework.Success, "")
+	return score, fwk.NewStatus(fwk.Success, "")
 }
 
 func (f *FlavourClusterWide) ScoreExtensions() framework.ScoreExtensions {
 	return f
 }
 
-func (f *FlavourClusterWide) NormalizeScore(ctx context.Context, state *framework.CycleState, pod *v1.Pod, scores framework.NodeScoreList) *framework.Status {
+func (f *FlavourClusterWide) NormalizeScore(ctx context.Context, state fwk.CycleState, pod *v1.Pod, scores framework.NodeScoreList) *fwk.Status {
 	return nil
 }

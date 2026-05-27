@@ -307,4 +307,6 @@ type FlavourClusterWideArgs struct {
 	// LabelName is the label key to use for identifying pod flavours.
 	// Defaults to "flavour" if not specified.
 	LabelName *string `json:"labelName,omitempty"`
+	// CacheTTL is the TTL of the cache in seconds. Defaults to 60 seconds if not specified.
+	CacheTTL int64 `json:"cacheTTL,omitempty"`
 }

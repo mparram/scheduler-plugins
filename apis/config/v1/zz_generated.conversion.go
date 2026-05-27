@@ -247,6 +247,7 @@ func autoConvert_v1_FlavourClusterWideArgs_To_config_FlavourClusterWideArgs(in *
 	if err := metav1.Convert_Pointer_string_To_string(&in.LabelName, &out.LabelName, s); err != nil {
 		return err
 	}
+	out.CacheTTL = in.CacheTTL
 	return nil
 }
 
@@ -259,6 +260,7 @@ func autoConvert_config_FlavourClusterWideArgs_To_v1_FlavourClusterWideArgs(in *
 	if err := metav1.Convert_string_To_Pointer_string(&in.LabelName, &out.LabelName, s); err != nil {
 		return err
 	}
+	out.CacheTTL = in.CacheTTL
 	return nil
 }
 

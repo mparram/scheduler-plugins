@@ -37,6 +37,7 @@ import (
 const Name = "FlavourClusterWide"
 
 const defaultLabelName = "flavour"
+const defaultCacheTTL = 60 // seconds
 
 type FlavourClusterWide struct {
 	handle      framework.Handle
@@ -45,6 +46,7 @@ type FlavourClusterWide struct {
 	cacheMutex  sync.RWMutex
 	lastUpdated time.Time
 	labelName   string
+	cacheTTL    time.Duration
 }
 
 var _ = framework.ScorePlugin(&FlavourClusterWide{})
@@ -62,17 +64,40 @@ func New(_ context.Context, obj runtime.Object, h framework.Handle) (framework.P
 	}
 
 	labelName := defaultLabelName
+	cacheTTL := time.Duration(defaultCacheTTL) * time.Second
 	if obj != nil {
 		// Try to cast to v1 args first (most common case)
 		if args, ok := obj.(*cfgv1.FlavourClusterWideArgs); ok {
+			log.Printf("FlavourClusterWide: obj is *cfgv1.FlavourClusterWideArgs, CacheTTL value: %d", args.CacheTTL)
 			if args.LabelName != nil && *args.LabelName != "" {
 				labelName = *args.LabelName
 			}
+			// Always use the provided CacheTTL if it's set (even if 0, though that would be unusual)
+			// Only use default if CacheTTL is exactly 0 (zero value for int64)
+			if args.CacheTTL != 0 {
+				cacheTTL = time.Duration(args.CacheTTL) * time.Second
+				log.Printf("FlavourClusterWide: CacheTTL configured from v1 args: %d seconds (%v)", args.CacheTTL, cacheTTL)
+			} else {
+				log.Printf("FlavourClusterWide: CacheTTL in v1 args is 0 (not set), using default: %d seconds (%v)", defaultCacheTTL, cacheTTL)
+			}
 		} else if args, ok := obj.(*pluginConfig.FlavourClusterWideArgs); ok {
+			log.Printf("FlavourClusterWide: obj is *pluginConfig.FlavourClusterWideArgs, CacheTTL value: %d", args.CacheTTL)
 			if args.LabelName != "" {
 				labelName = args.LabelName
 			}
+			// Always use the provided CacheTTL if it's set (even if 0, though that would be unusual)
+			// Only use default if CacheTTL is exactly 0 (zero value for int64)
+			if args.CacheTTL != 0 {
+				cacheTTL = time.Duration(args.CacheTTL) * time.Second
+				log.Printf("FlavourClusterWide: CacheTTL configured from config args: %d seconds (%v)", args.CacheTTL, cacheTTL)
+			} else {
+				log.Printf("FlavourClusterWide: CacheTTL in config args is 0 (not set), using default: %d seconds (%v)", defaultCacheTTL, cacheTTL)
+			}
+		} else {
+			log.Printf("FlavourClusterWide: obj type is %T, not FlavourClusterWideArgs, using defaults", obj)
 		}
+	} else {
+		log.Printf("FlavourClusterWide: obj is nil, using defaults (CacheTTL: %d seconds)", defaultCacheTTL)
 	}
 
 	return &FlavourClusterWide{
@@ -82,6 +107,7 @@ func New(_ context.Context, obj runtime.Object, h framework.Handle) (framework.P
 		cacheMutex:  sync.RWMutex{},
 		lastUpdated: time.Time{},
 		labelName:   labelName,
+		cacheTTL:    cacheTTL,
 	}, nil
 }
 
@@ -98,8 +124,8 @@ func (f *FlavourClusterWide) updateCacheIfNeeded() {
 	f.cacheMutex.Lock()
 	defer f.cacheMutex.Unlock()
 
-	if time.Since(f.lastUpdated) < 1*time.Minute {
-		log.Printf("Cache is still valid, not updating")
+	if time.Since(f.lastUpdated) < f.cacheTTL {
+		log.Printf("Cache is still valid (TTL: %v), not updating", f.cacheTTL)
 		return
 	}
 

@@ -27,7 +27,7 @@ The plugin maintains an in-memory cache that tracks the count of pods per flavou
 
 **Cache Management:**
 - The cache is updated in two ways:
-  1. **Periodic updates**: Every 1 minute, the plugin queries the Kubernetes API to refresh the cache with current pod distribution
+  1. **Periodic updates**: Based on the configurable `cacheTTL` parameter (default: 60 seconds), the plugin queries the Kubernetes API to refresh the cache with current pod distribution
   2. **PostBind updates**: Immediately after a pod is bound to a node, the cache is updated to reflect the new pod assignment
 - The cache is protected by a read-write mutex to ensure thread safety in concurrent scheduling scenarios
 
@@ -99,6 +99,7 @@ data:
           - name: FlavourClusterWide
             args:
               labelName: "tier"
+              cacheTTL: 30
     leaderElection:
       leaderElect: true
       leaseDuration: 137s
@@ -110,6 +111,7 @@ data:
 
 **Plugin Configuration Parameters:**
 - `labelName` (optional, string): The label key to use for identifying pod flavours. This parameter allows you to customize the label name used by the plugin. Defaults to `"flavour"` if not specified. In the example above, it's configured to use `"tier"` as the label name.
+- `cacheTTL` (optional, int64): The TTL (Time To Live) of the cache in seconds. This controls how often the plugin refreshes its cache by querying the Kubernetes API. Defaults to `60` seconds if not specified. In the example above, it's configured to `30` seconds.
 
 ### Usage Examples
 
@@ -210,7 +212,7 @@ map[string]map[string]int
 ```
 
 **Cache Update Frequency:**
-- Minimum interval: 1 minute (cache TTL)
+- Minimum interval: configurable via `cacheTTL` parameter (default: 60 seconds)
 - Immediate updates on pod binding via PostBind hook
 
 **API Queries:**

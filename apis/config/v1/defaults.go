@@ -97,6 +97,12 @@ var (
 	// DefaultNetworkTopologyName contains the networkTopology CR name to be used by networkAware plugins
 	DefaultNetworkTopologyName = "nt-default"
 
+	// Defaults for FlavourClusterWide
+	// DefaultLabelName is the default label key to use for identifying pod flavours
+	DefaultLabelName = "flavour"
+	// DefaultCacheTTL is the default TTL of the cache in seconds
+	DefaultCacheTTL int64 = 60
+
 	// Defaults for SySched
 	// DefaultSySchedProfileNamespace is the namesapce of the default syscall profile CR for SySched plugin
 	DefaultSySchedProfileNamespace = "default"

@@ -15,11 +15,42 @@ package procfs
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
+
+// DefaultMountPoint is the common mount point of the proc filesystem.
+const DefaultMountPoint = "/proc"
+
+// ErrFileParse is returned when a file cannot be parsed.
+var ErrFileParse = errors.New("error parsing file")
+
+// FS represents a pseudo-filesystem, normally /proc, which provides an
+// interface to kernel data structures.
+type FS struct {
+	proc string
+}
+
+// NewFS returns a new FS mounted under the given mountPoint.
+func NewFS(mountPoint string) (FS, error) {
+	info, err := os.Stat(mountPoint)
+	if err != nil {
+		return FS{}, err
+	}
+	if !info.IsDir() {
+		return FS{}, fmt.Errorf("mount point %s is not a directory", mountPoint)
+	}
+	return FS{proc: mountPoint}, nil
+}
+
+// Path appends the given path elements to the filesystem path.
+func (fs FS) Path(p string) string {
+	return filepath.Join(fs.proc, p)
+}
 
 // TLSStat struct represents data in /proc/net/tls_stat.
 // See https://docs.kernel.org/networking/tls.html#statistics
@@ -62,7 +93,7 @@ func NewTLSStat() (TLSStat, error) {
 
 // NewTLSStat reads the tls_stat statistics.
 func (fs FS) NewTLSStat() (TLSStat, error) {
-	file, err := os.Open(fs.proc.Path("net/tls_stat"))
+	file, err := os.Open(fs.Path("net/tls_stat"))
 	if err != nil {
 		return TLSStat{}, err
 	}

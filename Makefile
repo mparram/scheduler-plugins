@@ -17,7 +17,7 @@ INTEGTESTENVVAR=SCHED_PLUGINS_TEST_VERBOSE=1
 
 # Manage platform and builders
 PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
-BUILDER ?= docker
+BUILDER ?= podman
 ifeq ($(BUILDER),podman)
 	ALL_FLAG=--all
 else
@@ -42,6 +42,8 @@ EXTRA_ARGS=""
 # v20200521-v0.18.800             - automated build for a tag
 VERSION=$(shell echo $(RELEASE_VERSION) | awk -F - '{print $$2}')
 VERSION:=$(or $(VERSION),v0.0.$(shell date +%Y%m%d))
+# Convert v0.X.Y to v1.X.Y for scheduler (Kubernetes expects v1.X.Y format for version validation)
+KUBE_VERSION=$(shell echo $(VERSION) | sed 's/^v0\./v1\./')
 
 .PHONY: all
 all: build
@@ -55,7 +57,7 @@ build-controller:
 
 .PHONY: build-scheduler
 build-scheduler:
-	$(GO_BUILD_ENV) go build -ldflags '-X k8s.io/component-base/version.gitVersion=$(VERSION) -w' -o bin/kube-scheduler cmd/scheduler/main.go
+	$(GO_BUILD_ENV) go build -ldflags '-X k8s.io/component-base/version.gitVersion=$(KUBE_VERSION) -w' -o bin/kube-scheduler cmd/scheduler/main.go
 
 .PHONY: build-images
 build-images:
@@ -69,6 +71,20 @@ build-images:
 	DISTROLESS_BASE_IMAGE=$(DISTROLESS_BASE_IMAGE) \
 	DOCKER_BUILDX_CMD=$(DOCKER_BUILDX_CMD) \
 	EXTRA_ARGS=$(EXTRA_ARGS) hack/build-images.sh
+
+
+.PHONY: build-scheduler-image
+build-scheduler-image:
+	BUILDER=$(BUILDER) \
+	PLATFORMS=$(PLATFORMS) \
+	RELEASE_VERSION=$(RELEASE_VERSION) \
+	REGISTRY=$(REGISTRY) \
+	IMAGE=$(RELEASE_IMAGE) \
+	CONTROLLER_IMAGE=$(RELEASE_CONTROLLER_IMAGE) \
+	GO_BASE_IMAGE=$(GO_BASE_IMAGE) \
+	DISTROLESS_BASE_IMAGE=$(DISTROLESS_BASE_IMAGE) \
+	DOCKER_BUILDX_CMD=$(DOCKER_BUILDX_CMD) \
+	EXTRA_ARGS=$(EXTRA_ARGS) hack/build-scheduler-image.sh
 
 .PHONY: local-image
 local-image: PLATFORMS="linux/$$(uname -m)"
